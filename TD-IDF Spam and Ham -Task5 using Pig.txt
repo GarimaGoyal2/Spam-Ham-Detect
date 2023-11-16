@@ -1,0 +1,28 @@
+-- Tokenize the 'Comment' column
+tokenized_data = FOREACH spamandham GENERATE Name, FLATTEN(TOKENIZE(Comment)) AS word;
+
+-- Calculate Term Frequency (TF)---------------------
+tf_data = GROUP tokenized_data BY (Name, word);
+term_frequency = FOREACH tf_data GENERATE group.Name AS Name, group.word AS word, COUNT(tokenized_data) AS tf;
+
+-- Calculate Document Frequency (DF)
+grouped_df = GROUP term_frequency BY word;
+document_frequency = FOREACH grouped_df GENERATE group AS word, COUNT(term_frequency) AS df;
+
+-- Calculate Inverse Document Frequency (IDF)
+total_documents = COUNT(spamandham);
+idf = FOREACH document_frequency GENERATE word, LOG((double)total_documents / (double)df) AS idf;
+
+-- Calculate TF-IDF
+tfidf = JOIN term_frequency BY (Name, word), idf BY word;
+final_tfidf = FOREACH tfidf GENERATE term_frequency::Name AS Name, term_frequency::word AS word, tf * idf::idf AS tfidf;
+
+-- Rank by TF-IDF to get the top 10 ham and spam
+ranked_data = RANK final_tfidf BY tfidf DESC;
+top_ham = LIMIT ranked_data 10;
+top_spam = FILTER ranked_data BY tfidf > 0;  --
+
+-- Store the results
+STORE top_ham INTO 'output_ham' USING org.apache.hive.hcatalog.pig.HCatStorer();
+STORE top_spam INTO 'output_spam' USING org.apache.hive.hcatalog.pig.HCatStorer();
+
